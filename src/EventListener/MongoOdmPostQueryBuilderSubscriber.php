@@ -2,17 +2,15 @@
 
 namespace AlterPHP\EasyAdminExtensionBundle\EventListener;
 
-use Doctrine\Common\Collections\Collection;
-use Doctrine\ORM\Query\QueryException;
-use Doctrine\ORM\QueryBuilder;
-use EasyCorp\Bundle\EasyAdminBundle\Event\EasyAdminEvents;
+use AlterPHP\EasyAdminMongoOdmBundle\Event\EasyAdminMongoOdmEvents;
+use Doctrine\ODM\MongoDB\Query\Builder as QueryBuilder;
 
 /**
  * Apply filters on list/search queryBuilder.
  */
-class PostQueryBuilderSubscriber extends AbstractPostQueryBuilderSubscriber
+class MongoOdmPostQueryBuilderSubscriber extends AbstractPostQueryBuilderSubscriber
 {
-    protected const APPLIABLE_OBJECT_TYPE = 'entity';
+    protected const APPLIABLE_OBJECT_TYPE = 'document';
 
     /**
      * {@inheritdoc}
@@ -20,8 +18,8 @@ class PostQueryBuilderSubscriber extends AbstractPostQueryBuilderSubscriber
     public static function getSubscribedEvents()
     {
         return [
-            EasyAdminEvents::POST_LIST_QUERY_BUILDER => ['onPostListQueryBuilder'],
-            EasyAdminEvents::POST_SEARCH_QUERY_BUILDER => ['onPostSearchQueryBuilder'],
+            EasyAdminMongoOdmEvents::POST_LIST_QUERY_BUILDER => ['onPostListQueryBuilder'],
+            EasyAdminMongoOdmEvents::POST_SEARCH_QUERY_BUILDER => ['onPostSearchQueryBuilder'],
         ];
     }
 
@@ -35,19 +33,15 @@ class PostQueryBuilderSubscriber extends AbstractPostQueryBuilderSubscriber
     {
         foreach ($filters as $field => $value) {
             // Empty string and numeric keys is considered as "not applied filter"
-            if ('' === $value || \is_int($field)) {
+            if (\is_int($field) || '' === $value) {
                 continue;
             }
-            // Add root entity alias if none provided
-            $field = false === \strpos($field, '.') ? $queryBuilder->getRootAlias().'.'.$field : $field;
             // Checks if filter is directly appliable on queryBuilder
             if (!$this->isFilterAppliable($queryBuilder, $field)) {
                 continue;
             }
-            // Sanitize parameter name
-            $parameter = 'request_filter_'.\str_replace('.', '_', $field);
 
-            $this->filterQueryBuilder($queryBuilder, $field, $parameter, $value);
+            $this->filterQueryBuilder($queryBuilder, $field, $value);
         }
     }
 
@@ -65,16 +59,12 @@ class PostQueryBuilderSubscriber extends AbstractPostQueryBuilderSubscriber
             if (null === $value || '' === $value || \is_int($field)) {
                 continue;
             }
-            // Add root entity alias if none provided
-            $field = false === \strpos($field, '.') ? $queryBuilder->getRootAlias().'.'.$field : $field;
             // Checks if filter is directly appliable on queryBuilder
             if (!$this->isFilterAppliable($queryBuilder, $field)) {
                 continue;
             }
-            // Sanitize parameter name
-            $parameter = 'form_filter_'.\str_replace('.', '_', $field);
 
-            $this->filterQueryBuilder($queryBuilder, $field, $parameter, $value);
+            $this->filterQueryBuilder($queryBuilder, $field, $value);
         }
     }
 
@@ -83,40 +73,32 @@ class PostQueryBuilderSubscriber extends AbstractPostQueryBuilderSubscriber
      *
      * @param QueryBuilder $queryBuilder
      * @param string       $field
-     * @param string       $parameter
      * @param mixed        $value
      */
-    protected function filterQueryBuilder(QueryBuilder $queryBuilder, string $field, string $parameter, $value)
+    protected function filterQueryBuilder(QueryBuilder $queryBuilder, string $field, $value)
     {
         switch (true) {
             // Multiple values leads to IN statement
             case $value instanceof Collection:
             case \is_array($value):
-                if (0 < \count($value)) {
-                    $filterDqlPart = $field.' IN (:'.$parameter.')';
-                }
+                $filterExpr = $queryBuilder->expr()->field($field)->in($value);
                 break;
             // Special value for NULL evaluation
             case '_NULL' === $value:
-                $parameter = null;
-                $filterDqlPart = $field.' IS NULL';
+                $filterExpr = $queryBuilder->expr()->field($field)->equals(null);
                 break;
             // Special value for NOT NULL evaluation
             case '_NOT_NULL' === $value:
-                $parameter = null;
-                $filterDqlPart = $field.' IS NOT NULL';
+                $filterExpr = $queryBuilder->expr()->field($field)->notEqual(null);
                 break;
             // Default is equality
             default:
-                $filterDqlPart = $field.' = :'.$parameter;
+                $filterExpr = $queryBuilder->expr()->field($field)->equals($value);
                 break;
         }
 
-        if (isset($filterDqlPart)) {
-            $queryBuilder->andWhere($filterDqlPart);
-            if (null !== $parameter) {
-                $queryBuilder->setParameter($parameter, $value);
-            }
+        if (isset($filterExpr)) {
+            $queryBuilder->addAnd($filterExpr);
         }
     }
 
@@ -130,17 +112,6 @@ class PostQueryBuilderSubscriber extends AbstractPostQueryBuilderSubscriber
      */
     protected function isFilterAppliable(QueryBuilder $queryBuilder, string $field): bool
     {
-        $qbClone = clone $queryBuilder;
-
-        try {
-            $qbClone->andWhere($field.' IS NULL');
-
-            // Generating SQL throws a QueryException if using wrong field/association
-            $qbClone->getQuery()->getSQL();
-        } catch (QueryException $e) {
-            return false;
-        }
-
         return true;
     }
 }

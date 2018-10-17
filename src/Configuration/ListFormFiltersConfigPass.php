@@ -28,24 +28,34 @@ class ListFormFiltersConfigPass implements ConfigPassInterface
      */
     public function process(array $backendConfig): array
     {
-        if (!isset($backendConfig['entities'])) {
-            return $backendConfig;
+        if (isset($backendConfig['entities']) && \is_array($backendConfig['entities'])) {
+            $this->processObjectListFormFilters('entity', $backendConfig['entities']);
         }
 
-        foreach ($backendConfig['entities'] as $entityName => $entityConfig) {
-            if (!isset($entityConfig['list']['form_filters'])) {
+        if (isset($backendConfig['documents']) && \is_array($backendConfig['documents'])) {
+            $this->processObjectListFormFilters('document', $backendConfig['documents']);
+        }
+
+        return $backendConfig;
+    }
+
+    private function processObjectListFormFilters(string $objectType, array &$objectConfigs)
+    {
+        foreach ($objectConfigs as $objectName => $objectConfig) {
+            if (!isset($objectConfig['list']['form_filters'])) {
                 continue;
             }
 
             $formFilters = [];
 
-            foreach ($entityConfig['list']['form_filters'] as $i => $formFilter) {
+            foreach ($objectConfig['list']['form_filters'] as $key => $formFilter) {
                 // Detects invalid config node
                 if (!\is_string($formFilter) && !\is_array($formFilter)) {
                     throw new \RuntimeException(
                         \sprintf(
-                            'The values of the "form_filters" option for the list view of the "%s" entity can only be strings or arrays.',
-                            $entityConfig['class']
+                            'The values of the "form_filters" option for the list view of the "%s" object of type "%s" can only be strings or arrays.',
+                            $objectConfig['class'],
+                            $objectType
                         )
                     );
                 }
@@ -55,22 +65,29 @@ class ListFormFiltersConfigPass implements ConfigPassInterface
                     $filterConfig = ['property' => $formFilter];
                 } else {
                     if (!\array_key_exists('property', $formFilter)) {
-                        throw new \RuntimeException(
-                            \sprintf(
-                                'One of the values of the "form_filters" option for the "list" view of the "%s" entity does not define the mandatory option "property".',
-                                $entityConfig['class']
-                            )
-                        );
+                        if (\is_string($key)) {
+                            $formFilter['property'] = $key;
+                        } else {
+                            throw new \RuntimeException(
+                                \sprintf(
+                                    'One of the values of the "form_filters" option for the "list" view of the "%s" object of type "%s" does not define the mandatory option "property".',
+                                    $objectConfig['class'],
+                                    $objectType
+                                )
+                            );
+                        }
                     }
 
                     $filterConfig = $formFilter;
                 }
 
-                $this->configureFilter(
-                    $entityConfig['class'],
-                    $filterConfig,
-                    $backendConfig['translation_domain'] ?? 'EasyAdminBundle'
-                );
+                if ('entity' === $objectType) {
+                    $this->configureEntityFormFilter(
+                        $objectConfig['class'],
+                        $filterConfig,
+                        $backendConfig['translation_domain'] ?? 'EasyAdminBundle'
+                    );
+                }
 
                 // If type is not configured at this steps => not guessable
                 if (!isset($filterConfig['type'])) {
@@ -81,13 +98,11 @@ class ListFormFiltersConfigPass implements ConfigPassInterface
             }
 
             // set form filters config and form !
-            $backendConfig['entities'][$entityName]['list']['form_filters'] = $formFilters;
+            $objectConfigs[$objectName]['list']['form_filters'] = $formFilters;
         }
-
-        return $backendConfig;
     }
 
-    private function configureFilter(string $entityClass, array &$filterConfig, string $translationDomain)
+    private function configureEntityFormFilter(string $entityClass, array &$filterConfig, string $translationDomain)
     {
         // No need to guess type
         if (isset($filterConfig['type'])) {
@@ -106,17 +121,17 @@ class ListFormFiltersConfigPass implements ConfigPassInterface
         }
 
         if ($entityMetadata->hasField($filterConfig['property'])) {
-            $this->configureFieldFilter(
+            $this->configureEntityPropertyFilter(
                 $entityClass, $entityMetadata->getFieldMapping($filterConfig['property']), $filterConfig, $translationDomain
             );
         } elseif ($entityMetadata->hasAssociation($filterConfig['property'])) {
-            $this->configureAssociationFilter(
+            $this->configureEntityAssociationFilter(
                 $entityClass, $entityMetadata->getAssociationMapping($filterConfig['property']), $filterConfig
             );
         }
     }
 
-    private function configureFieldFilter(string $entityClass, array $fieldMapping, array &$filterConfig, string $translationDomain)
+    private function configureEntityPropertyFilter(string $entityClass, array $fieldMapping, array &$filterConfig, string $translationDomain)
     {
         switch ($fieldMapping['type']) {
             case 'boolean':
@@ -126,7 +141,7 @@ class ListFormFiltersConfigPass implements ConfigPassInterface
                         'list_form_filters.default.boolean.true' => true,
                         'list_form_filters.default.boolean.false' => false,
                     ],
-                    'choice_translation_domain' => 'EasyAdminBundle',
+                    'choice_translation_domain' => $translationDomain,
                 ];
                 break;
             case 'string':
@@ -151,7 +166,7 @@ class ListFormFiltersConfigPass implements ConfigPassInterface
         }
     }
 
-    private function configureAssociationFilter(string $entityClass, array $associationMapping, array &$filterConfig)
+    private function configureEntityAssociationFilter(string $entityClass, array $associationMapping, array &$filterConfig)
     {
         // To-One (EasyAdminAutocompleteType)
         if ($associationMapping['type'] & ClassMetadataInfo::TO_ONE) {
@@ -160,6 +175,7 @@ class ListFormFiltersConfigPass implements ConfigPassInterface
                 [
                     'class' => $associationMapping['targetEntity'],
                     'multiple' => true,
+                    'attr' => ['data-widget' => 'select2'],
                 ],
                 $filterConfig['type_options'] ?? []
             );
