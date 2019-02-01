@@ -17,8 +17,15 @@ class TwigPathPass implements CompilerPassInterface
         // Replaces native EasyAdmin templates
         $easyAdminExtensionBundleRefl = new \ReflectionClass(EasyAdminExtensionBundle::class);
         if ($easyAdminExtensionBundleRefl->isUserDefined()) {
-            $easyAdminExtensionBundlePath = \dirname((string) $easyAdminExtensionBundleRefl->getFileName());
-            $easyAdminExtensionTwigPath = $easyAdminExtensionBundlePath.'/Resources/views';
+
+            $bundleName = explode("\\", $easyAdminExtensionBundleRefl->getName());
+
+//            $easyAdminExtensionBundlePath = \dirname((string) $easyAdminExtensionBundleRefl->getFileName());
+            $easyAdminExtensionBundlePath = dirname(__FILE__, 7) . "/templates/bundles/" . $bundleName[2];
+
+//            $easyAdminExtensionTwigPath = $easyAdminExtensionBundlePath.'/Resources/views';
+            $easyAdminExtensionTwigPath = $easyAdminExtensionBundlePath;
+
             $twigLoaderFilesystemDefinition->addMethodCall(
                 'prependPath',
                 [$easyAdminExtensionTwigPath, 'EasyAdmin']
@@ -27,8 +34,16 @@ class TwigPathPass implements CompilerPassInterface
 
         $nativeEasyAdminBundleRefl = new \ReflectionClass(EasyAdminBundle::class);
         if ($nativeEasyAdminBundleRefl->isUserDefined()) {
-            $nativeEasyAdminBundlePath = \dirname((string) $nativeEasyAdminBundleRefl->getFileName());
-            $nativeEasyAdminTwigPath = $nativeEasyAdminBundlePath.'/Resources/views';
+
+            $bundleName = explode("\\", $easyAdminExtensionBundleRefl->getName());
+
+//            $nativeEasyAdminBundlePath = \dirname((string) $nativeEasyAdminBundleRefl->getFileName());
+//            $nativeEasyAdminBundlePath = dirname(__FILE__, 7) . "/templates/bundles/" . $bundleName[2];
+            $nativeEasyAdminBundlePath = dirname(__FILE__, 7) . "/templates/bundles/" . 'EasyAdminBundle';
+
+//            $nativeEasyAdminTwigPath = $nativeEasyAdminBundlePath.'/Resources/views';
+            $nativeEasyAdminTwigPath = $nativeEasyAdminBundlePath;
+
             // Defines a namespace from native EasyAdmin templates
             $twigLoaderFilesystemDefinition->addMethodCall(
                 'addPath',
